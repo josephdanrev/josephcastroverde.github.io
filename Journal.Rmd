@@ -1,0 +1,282 @@
+---
+title: "Case Study Journal: Bike Share"
+output: html_notebook
+---
+
+# Step 1: Prepare the Data
+
+Created a new project and set the working directory for this project (i.e. "R/Case_Study")
+
+## Installing and Loading libraries
+If packages are not installed then install them first.
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(janitor)
+library(lubridate)
+library(ggplot2)
+```
+
+## Setup CSV files in Working Directory
+
+Copy the CSV files into the working directory. Ensure file extensions are in lowercase ".csv" (NOT ".CSV")
+
+## Import CSV files into a data frame
+
+There should be 12 CSV files in total corresponding to each month for the past 12 months. All files will be imported into a single data frame.
+
+
+```{r}
+file_list <- list.files(pattern = "*.csv") #list all the .csv filenames in working directory
+data <- lapply(file_list, read_csv) %>%  #read, bind and assign the data to the data frame
+  bind_rows() 
+```
+
+# Step 2: Inspect the Data
+
+We can do Step 2 again after cleaning and transforming the data
+```{r}
+#Column names
+colnames(data)
+```
+
+```{r}
+#Summary
+summary(data)
+```
+
+```{r}
+#Skim
+skim_without_charts(data)
+```
+
+# Step 3: Cleaning and Transform the Data
+
+## Remove columns
+
+Some columns are not needed anymore for the analysis, so we shall remove them from the data frame.
+
+```{r}
+data <- data %>%
+  select(-c(start_station_name:end_lng))
+```
+
+## Create new columns
+Since we need to find difference in usage between members and casual users, we need to create a column for duration (trip length). We shall also separate date and time columns from started_at.
+
+```{r}
+data <- data %>%
+  mutate(duration = as.numeric(difftime(ended_at, started_at)))
+```
+
+After checking new data frame, we see some negative duration and duration that are longer than one day (84600 secs). We will remove entries that are less than 1 minute in duration and entries that are more than a day in duration.
+
+```{r}
+data <- filter(data, duration > 60 & duration < 86400)
+```
+
+Get weekday, month and hour from the started_at date
+
+```{r}
+data <- data %>%
+  mutate(day_of_week = wday(ymd_hms(data$started_at), label = TRUE, abbr = TRUE)) %>%
+  mutate(month = month(ymd_hms(data$started_at), label = TRUE, abbr = FALSE))
+  
+data$hour <- hour(data$started_at)
+```
+
+
+## Remove columns again
+
+Some columns are not needed anymore for the analysis, so we shall remove them from the data frame.
+
+```{r}
+data <- data %>%
+  select(-c(started_at:ended_at))
+```
+
+## Cleanup memory
+
+```{r}
+gc()
+```
+
+Then, we can go ahead and inspect our data frame to make sure it is clean and ready for analysis.
+
+```{r}
+arrange(data, -duration)
+```
+
+```{r}
+arrange(data, duration)
+```
+
+# Step 4: Analyse the data
+We need to find the differences in how member and casual bikers use the bike share service. We need to find trends in the data.
+
+## Member vs Casual Monthly Summary
+
+First create temporary data frames for average duration, and number of rides for each membership type. We will then join the tables for easy comparison and visualization.
+
+```{r}
+temp_member <- data %>%
+  filter(member_casual == 'member') %>%
+  group_by(month) %>%
+  summarise(ave_duration_member =mean(duration), frequency_member = n())
+
+temp_casual <- data %>%
+  filter(member_casual == 'casual') %>%
+  group_by(month) %>%
+  summarise(ave_duration_casual =mean(duration), frequency_casual = n())
+```
+
+Join both tables
+```{r}
+monthly_summary <- merge(temp_member, temp_casual, by.x =  "month")
+```
+
+## Member vs Casual Weekday Summary
+
+Similarly, we shall do a summary for days of the week
+```{r}
+temp_member <- data %>%
+  filter(member_casual == 'member') %>%
+  group_by(day_of_week) %>%
+  summarise(ave_duration_member =mean(duration), frequency_member = n())
+
+temp_casual <- data %>%
+  filter(member_casual == 'casual') %>%
+  group_by(day_of_week) %>%
+  summarise(ave_duration_casual =mean(duration), frequency_casual = n())
+```
+
+Join both tables
+```{r}
+weekly_summary <- merge(temp_member, temp_casual, by.x =  "day_of_week")
+```
+
+## Member vs Casual Hourly Summary
+
+Similarly, we shall do a summary for time of the day
+```{r}
+temp_member <- data %>%
+  filter(member_casual == 'member') %>%
+  group_by(hour) %>%
+  summarise(ave_duration_member =mean(duration), frequency_member = n())
+
+temp_casual <- data %>%
+  filter(member_casual == 'casual') %>%
+  group_by(hour) %>%
+  summarise(ave_duration_casual =mean(duration), frequency_casual = n())
+```
+
+Join both tables
+```{r}
+daily_summary <- merge(temp_member, temp_casual, by.x =  "hour")
+```
+
+# Step 5: Visualization
+We have to create some visualization to easily show our trends
+
+## Monthly Comparison
+
+```{r}
+data %>%
+  ggplot() + 
+  geom_bar(mapping = aes(x = month, fill = member_casual), 
+           position = position_dodge()) +
+  theme(axis.text.x = element_text(angle = 45)) +
+  labs(title = "Monthly Usage Comparison for Different Riders", 
+       x = "", 
+       y = "Total Rides")
+```
+
+
+## Weekly Comparison
+
+```{r}
+data %>%
+  ggplot() + 
+  geom_bar(mapping = aes(x = day_of_week, fill = member_casual), 
+           position = position_dodge()) +
+  theme(axis.text.x = element_text(angle = 45)) +
+  labs(title = "Weekly Usage Comparison for Different Riders", 
+       x = "", 
+       y = "Total Rides")
+```
+
+## Hourly Comparison
+
+```{r}
+data %>%
+  ggplot() + 
+  geom_bar(mapping = aes(x = hour, fill = member_casual), 
+           position = position_dodge()) +
+  theme(axis.text.x = element_text(angle = 45)) +
+  labs(title = "Hourly Usage Comparison for Different Riders", 
+       x = "Hour", 
+       y = "Total Rides")
+```
+## Trip Length Comparison 
+We shall do monthly, weekly, and hourly to see if there are any trends.
+
+
+```{r}
+ggplot(monthly_summary, aes(x = month)) +
+  geom_line(aes(y = ave_duration_member, color = "Member", group = 1), size = 1.5) +
+  geom_line(aes(y = ave_duration_casual, color = "Casual", group = 2), size = 1.5) +
+  labs(x = "",
+       y = "Duration(Average)",
+       title = "Monthly Comparison for Trip Lengths",
+       color = "Membership") +
+  theme(axis.text.x = element_text(angle = 45)) +
+  scale_color_manual(values = c("Casual" = "blue", "Member" = "red"))
+```
+
+```{r}
+ggplot(weekly_summary, aes(x = day_of_week)) +
+  geom_line(aes(y = ave_duration_member, color = "Member", group = 1), size = 1.5) +
+  geom_line(aes(y = ave_duration_casual, color = "Casual", group = 2), size = 1.5) +
+  labs(x = "",
+       y = "Duration(Average)",
+       title = "Weekly Comparison for Trip Lengths",
+       color = "Membership") +
+  theme(axis.text.x = element_text(angle = 45)) +
+  scale_color_manual(values = c("Casual" = "blue", "Member" = "red"))
+```
+
+```{r}
+ggplot(daily_summary, aes(x = hour)) +
+  geom_line(aes(y = ave_duration_member, color = "Member", group = 1), size = 1.5) +
+  geom_line(aes(y = ave_duration_casual, color = "Casual", group = 2), size = 1.5) +
+  labs(x = "Hour",
+       y = "Duration(Average)",
+       title = "Hourly Comparison for Trip Lengths",
+       color = "Membership") +
+  scale_color_manual(values = c("Casual" = "blue", "Member" = "red"))
+```
+# Step 6: Insights and Conclusions
+
+From the following data, we have found some trends when it comes to different rider types.
+
+### Trends
+* Summer months are busier than winter months for both member and casual.
+* There are generally less casual rides in most months except for summer month of August which is most likely because of tourists.
+* Average trip length for casual riders are significantly higher than members. Most casual riders maximizes their trips between docking.
+* Member rides are pretty consistent everyday of the week with slightly more rides in the weekdays than weekends.
+* Casual rides are significantly more during weekends than on weekdays. This is most likely because of tourists as well.
+
+## Recommendations
+
+* Any marketing strategy to convert casual riders to members must be done during times where casual riders uses the service the most - during weekends and during summer months
+
+* Encourage casual riders to take more frequent and shorter trips with an annual membership by showing benefits of being able to ride whenever they want and not worry about trying to maximize their trips within a single ride or day. 
+
+* 
+
+
+
+---------------------------------------------------------------------------------------------------------------------
+
+
